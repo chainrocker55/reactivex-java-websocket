@@ -11,6 +11,14 @@ public class RequestWebSocket {
     private String correlationId;
     private Map<String, String> body;
 
+    public RequestWebSocket() {
+    }
+
+    public RequestWebSocket(String type, String destination) {
+        this.type = type;
+        this.destination = destination;
+    }
+
     public String getType() {
         return type;
     }

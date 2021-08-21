@@ -1,21 +1,25 @@
 package com.example.websocket;
 
-import com.example.websocket.config.MarketConfig;
+import com.example.websocket.model.RequestWebSocket;
 import com.google.gson.Gson;
 
-import javax.inject.Inject;
-
 public class MarketWebSocketFactory {
-    private final Gson gson;
-    private final MarketConfig config;
-
-    @Inject
-    public MarketWebSocketFactory(MarketConfig config, Gson gson) {
-        this.config = config;
-        this.gson = gson;
-
-    }
+    private final Gson gson = new Gson();
     public MarketWebSocketImpl createSession(){
-        return  new MarketWebSocketImpl(config, gson);
+        return  new MarketWebSocketImpl(gson);
+    }
+    public MarketWebSocketImpl createCurrentChartSession(){
+
+        MarketWebSocketImpl session = createSession();
+        String destination = "/topic/DEMO/current-bars/BTCUSD/minute5";
+        String destination2 = "/topic/DEMO/current-bars/BTCUSD/minute";
+        String destination3 = "/topic/DEMO/current-bars/BTCUSD/minute15";
+        RequestWebSocket requestWebSocket = new RequestWebSocket("subscribe", destination);
+        session.sendMessage(requestWebSocket);
+//        requestWebSocket.setDestination(destination2);
+//        session.sendMessage(requestWebSocket);
+//        requestWebSocket.setDestination(destination3);
+//        session.sendMessage(requestWebSocket);
+        return session;
     }
 }

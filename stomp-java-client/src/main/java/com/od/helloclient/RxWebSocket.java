@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
+import io.reactivex.FlowableTransformer;
 import io.reactivex.Single;
 import io.reactivex.processors.PublishProcessor;
 import io.reactivex.schedulers.Schedulers;
@@ -24,7 +25,6 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class RxWebSocket {
@@ -37,7 +37,7 @@ public class RxWebSocket {
     private static final PublishProcessor<String> messagePublishProcessor = PublishProcessor.create();
     private static final Publisher<String> publisher = null;
     private static Gson gson = new Gson();
-    private final AtomicReference<WebSocketSession> shiftMarketSession = new AtomicReference<>();
+    private static final AtomicReference<WebSocketSession> currentChartSession = new AtomicReference<>();
 
 
     public static WebSocketSession connect() throws ExecutionException, InterruptedException {
@@ -129,6 +129,13 @@ public class RxWebSocket {
             sessionStatusBehaviorSubject.onNext(MarketStatus.DISCONNECTED);
         }
     }
+    public static <T> FlowableTransformer<T, T> applySchedulers() {
+        return observable -> observable.subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.computation());
+    }
+
+
+
     private Throwable sessionDisconnectedException() {
         return new ConnectException("Session is disconnected");
     }
@@ -186,90 +193,58 @@ public class RxWebSocket {
         //sendMessage(request4);
 
 
+
+
+        Flowable.fromCallable(() -> {
+            LOGGER.info("Building new current chart websocket session from factory");
+            return connect();
+        })
+                .doOnSubscribe(subscription -> LOGGER.info("Subscribing to new current chart websocket session"))
+                .doOnNext(currentChartSession::set)
+                .switchMap(e->sessionStatus())
+                .compose(new RetryTransformer<>(
+                        attempt -> {
+                            Duration duration = Duration.ofSeconds(new BigDecimal(2).pow(Math.min(attempt - 1, 6)).intValue());
+                            LOGGER.info("Retrying current chart websocket session connection in"+duration);
+                            return Optional.of(duration);
+                        }, error -> false, Schedulers.io()))
+                .subscribe();
+//
+//
+//        Flowable<ResponseWebSocket<ChartPayload>> resultCurrent = messagePublishProcessor
+//                .compose(applySchedulers())
+//                .doOnSubscribe(s-> {
+//                    LOGGER.info("doOnSubscribe");
+////                    Boolean result = messagePublishProcessor
+////                            .map(res->gson.fromJson(res, ResponseWebSocket.class))
+////                            .timeout(2, TimeUnit.SECONDS)
+////                            .take(1)
+////                            .any(e -> request3.getDestination().equals(e.getSource()))
+////                            .onErrorReturn(e -> false)
+////                            .blockingGet();
+//
+////                    if(!result){
+////                        LOGGER.info("do if no destination");
+////                        sendMessage(request3);
+////                    }
+//
+//                })
+//                .onBackpressureLatest()
+//                .map(res->gson.fromJson(res, ResponseWebSocket.class))
+//                .filter(res-> res.getSource().equals(request3.getDestination()))
+//                .doOnError(throwable -> LOGGER.error(throwable.getMessage()))
+//                .map(res -> gson.fromJson(gson.toJson(res), collectionTypeCurrent));
+
+
         sendMessage(request3);
 
 
-        Type collectionTypeCurrent = new TypeToken<ResponseWebSocket<ChartPayload>>(){}.getType();
-        Flowable<ResponseWebSocket<ChartPayload>> resultCurrent = messagePublishProcessor
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
-                .doOnSubscribe(s-> {
-                    LOGGER.info("doOnSubscribe");
-//                    Boolean result = messagePublishProcessor
-//                            .map(res->gson.fromJson(res, ResponseWebSocket.class))
-//                            .timeout(2, TimeUnit.SECONDS)
-//                            .take(1)
-//                            .any(e -> request3.getDestination().equals(e.getSource()))
-//                            .onErrorReturn(e -> false)
-//                            .blockingGet();
-
-//                    if(!result){
-//                        LOGGER.info("do if no destination");
-//                        sendMessage(request3);
-//                    }
-
-                })
-                .onBackpressureLatest()
-                .map(res->gson.fromJson(res, ResponseWebSocket.class))
-                .filter(res-> res.getSource().equals(request3.getDestination()))
-                .doOnError(throwable -> LOGGER.error(throwable.getMessage()))
-                .map(res -> gson.fromJson(gson.toJson(res), collectionTypeCurrent));
-
-        resultCurrent.throttleLast(1, TimeUnit.SECONDS).subscribe(res -> {
-            LOGGER.info("Receive data");
-           // LOGGER.info(gson.toJson(res));
-        });
-//        disposable =  Flowable.fromCallable(() -> {
-//            logger.info("Building new shiftmarkets Session from factory");
-//            return shiftMarketWebSocketFactory.createSession();
-//        })
-//                .doOnSubscribe(subscription -> logger.info("Subscribing to new shiftmarkets Session"))
-//                .doOnNext(this.shiftMarketSession::set)
-//                .switchMap(ShiftMarketWebSocket::sessionStatus)
-//                .map(status -> {
-//                    logger.info("shiftmarkets has changed status to {}", status);
-//                    switch (status) {
-//                        case CONNECTED:
-//                            return ServiceStatus.OK;
-//                        case DISCONNECTED:
-//                            shiftMarketSession.get().close();
-//                        case STARTING:
-//                        default:
-//                            return ServiceStatus.DOWN;
-//                    }
-//                })
-//                .filter(ServiceStatus.OK::equals)
-//                .compose(new RetryTransformer<>(
-//                        attempt -> {
-//                            Duration duration = Duration.ofSeconds(new BigDecimal(2).pow(Math.min(attempt - 1, 6)).intValue());
-//                            logger.info("Retrying shiftmarket connection in {}", duration);
-//                            return Optional.of(duration);
-//                        }, error -> false, ioScheduler))
-//                .subscribe();
-//
-//        Flowable.just(shiftMarketSession.get()).take(1).delay(10, TimeUnit.SECONDS).subscribe(e->e.close());
 
 
-        Flowable.fromPublisher(sessionStatus()).compose(new RetryTransformer<>(
-                attempt -> {
-                    Duration duration = Duration.ofSeconds(new BigDecimal(2).pow(Math.min(attempt - 1, 6)).intValue());
-                    LOGGER.info("Retrying shiftmarket connection in "+duration);
-                    return Optional.of(duration);
-                }, error -> false, Schedulers.io()))
-                .subscribe();
-//        Flowable.fromCallable(()->webSocketSession.isOpen())
-//                .takeUntil(e)
-//                .subscribe(e -> {
-//            LOGGER.info("check connection "+e);
-//
-//           if(!e){
-//               LOGGER.info("Retry connection");
-//               connect();
-//           }
+//        resultCurrent.throttleLast(1, TimeUnit.SECONDS).subscribe(res -> {
+//            LOGGER.info("Receive data");
+//            // LOGGER.info(gson.toJson(res));
 //        });
-
-
-
 
         Thread.sleep(4000);
         webSocketSession.close();

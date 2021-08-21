@@ -1,6 +1,5 @@
 package com.example.websocket;
 
-import com.example.websocket.config.MarketConfig;
 import com.example.websocket.model.RequestWebSocket;
 import com.google.gson.Gson;
 import io.reactivex.BackpressureStrategy;
@@ -18,19 +17,19 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.URI;
 import java.util.concurrent.ExecutionException;
 
 public class MarketWebSocketImpl implements MarketWebSocket {
     private static final Logger LOGGER = LoggerFactory.getLogger(MarketWebSocketImpl.class);
     private WebSocketSession webSocketSession;
+    private static URI URL = URI.create("wss://exchange-data-service.cryptosrvc.com");
     private final BehaviorSubject<MarketStatus> sessionStatusBehaviorSubject = BehaviorSubject.createDefault(MarketStatus.STARTING);
     private final PublishProcessor<String> messagePublishProcessor = PublishProcessor.create();
-    private final MarketConfig config;
     private final Gson gson;
 
-    public MarketWebSocketImpl(MarketConfig config, Gson gson) {
-        this.config = config;
+    public MarketWebSocketImpl(Gson gson) {
         this.gson = gson;
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
         WebSocketClient webSocketClient = new StandardWebSocketClient();
@@ -40,11 +39,16 @@ public class MarketWebSocketImpl implements MarketWebSocket {
                 @Override
                 public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
                     sessionStatusBehaviorSubject.onNext(MarketStatus.DISCONNECTED);
+                    sessionStatusBehaviorSubject.onError(sessionDisconnectedException());
+                    messagePublishProcessor.onError(sessionDisconnectedException());
+                    LOGGER.info("session call error");
                 }
 
                 @Override
                 public void handleTextMessage(WebSocketSession session, TextMessage message) {
                     messagePublishProcessor.onNext(message.getPayload());
+                    LOGGER.info("Established connection - {}" , message.getPayload());
+
                 }
                 @Override
                 public void afterConnectionEstablished(WebSocketSession session) throws IOException {
@@ -55,15 +59,16 @@ public class MarketWebSocketImpl implements MarketWebSocket {
                 @Override
                 public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
                     LOGGER.error("Unsupported payload format error {}: ", exception.getMessage());
-                    messagePublishProcessor.onError(exception);
+                    //messagePublishProcessor.onError(exception);
                     //sessionStatusBehaviorSubject.onNext(ShiftMarketStatus.DISCONNECTED);
                 }
-            }, headers, URI.create(config.getWebSocketUrl())).get();
+            },headers, URL).get();
 
             webSocketSession.setTextMessageSizeLimit(Integer.MAX_VALUE);
+
         } catch (InterruptedException | ExecutionException e) {
             LOGGER.error("Cannot connecting {}", e.getMessage());
-            messagePublishProcessor.onError(e);
+            //messagePublishProcessor.onError(e);
             sessionStatusBehaviorSubject.onNext(MarketStatus.DISCONNECTED);
             sessionStatusBehaviorSubject.onError(e);
         }
@@ -89,20 +94,24 @@ public class MarketWebSocketImpl implements MarketWebSocket {
 
     @Override
     public Flowable<MarketStatus> sessionStatus() {
-        return sessionStatusBehaviorSubject.toFlowable(BackpressureStrategy.MISSING);
+        return sessionStatusBehaviorSubject.toFlowable(BackpressureStrategy.LATEST);
     }
 
+    private Throwable sessionDisconnectedException() {
+
+        return new ConnectException("Session is disconnected");
+    }
     @Override
     public void close() {
         try {
             webSocketSession.close(CloseStatus.NORMAL);
-            sessionStatusBehaviorSubject.onNext(MarketStatus.DISCONNECTED);
-            //sessionStatusBehaviorSubject.onError(null);
-
+            sessionStatusBehaviorSubject.onComplete();
         } catch (IOException e) {
             sessionStatusBehaviorSubject.onNext(MarketStatus.DISCONNECTED);
         }
     }
 
-
+    public WebSocketSession getWebSocketSession() {
+        return webSocketSession;
+    }
 }

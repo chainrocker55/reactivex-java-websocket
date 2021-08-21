@@ -12,7 +12,6 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.io.IOException;
 import java.net.URI;
 import java.sql.Timestamp;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +24,7 @@ public class WebSocket {
     public static WebSocketSession connect() throws ExecutionException, InterruptedException {
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
         WebSocketClient webSocketClient = new StandardWebSocketClient();
+
 
         webSocketSession = webSocketClient.doHandshake(new TextWebSocketHandler() {
             @Override
